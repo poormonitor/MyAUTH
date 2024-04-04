@@ -1,0 +1,162 @@
+<template>
+	<view class="content">
+		<view class="card" v-for="token in tokens">
+			<view>
+				<text class="label">{{ token[0] }}</text>
+			</view>
+			<view>
+				<text class="user">{{ token[2] }}</text>
+			</view>
+			<view>
+				<text class="token">{{ token[1] }}</text>
+			</view>
+		</view>
+	</view>
+	<view class="none" v-if="!tokens.length">
+		<text class="none-label">{{ hint }}</text>
+	</view>
+</template>
+
+<script setup>
+import * as OTPAuth from 'otpauth';
+import { ref, onMounted } from 'vue';
+
+const fetchFileData = (fileName, callback) => {
+	plus.io.requestFileSystem(
+		plus.io.PUBLIC_DOWNLOADS,
+		(fs) => {
+			fs.root.getFile(
+				fileName,
+				{ create: true },
+				(fileEntry) => {
+					fileEntry.file(function (file) {
+						var fileReader = new plus.io.FileReader();
+						fileReader.readAsText(file, 'utf-8');
+						fileReader.onloadend = function (res) {
+							callback(res.target.result);
+						};
+					});
+				},
+				(e) => {
+					console.log('Error 1', 'getFile failed: ' + e.message);
+				}
+			);
+		},
+		(e) => {
+			console.log('Error 2', e.message);
+		}
+	);
+};
+
+function timeRemaining(windowSize = 30) {
+	const currentTimestamp = Math.floor(Date.now() / 1000);
+	const timeElapsed = currentTimestamp % windowSize;
+	return windowSize - timeElapsed;
+}
+
+const hint = 'Loading';
+const TotpObjects = [];
+const tokens = ref([]);
+
+new Promise((resolve) => {
+	// #ifdef APP-PLUS
+	fetchFileData('info.txt', (res) => {
+		resolve(res);
+	});
+	// #endif
+	// #ifdef !APP-PLUS
+	resolve(
+		'otpauth://totp/ACME:AzureDiamond?issuer=ACME&secret=NB2W45DFOIZA&algorithm=SHA1&digits=6&period=30\n' +
+			'otpauth://totp/ACME:AzureDiamond?issuer=ACME&secret=NB2W45DFOIZA&algorithm=SHA1&digits=6&period=30\n' +
+			'otpauth://totp/ACME:AzureDiamond?issuer=ACME&secret=NB2W45DFOIZA&algorithm=SHA1&digits=6&period=30'
+	);
+	// #endif
+})
+	.then((content) => {
+		let lines = content.split('\n');
+		lines = lines.filter((line) => line.startsWith('otpauth://totp/'));
+		return lines;
+	})
+	.then((keys) => {
+		for (let key of keys) {
+			let uri = decodeURIComponent(key);
+			let totp = OTPAuth.URI.parse(uri);
+			let token = totp.generate();
+			let time = timeRemaining(totp.period);
+			token = token.split('').join(' ');
+			tokens.value.push([totp.issuer, token, totp.label, time]);
+			TotpObjects.push([totp, token]);
+		}
+		if (!keys.length) hint.value = 'None here';
+	});
+
+function generateOtp() {
+	let temp = [];
+	for (let totp of TotpObjects) {
+		let issuer = totp[0].issuer;
+		let label = totp[0].label;
+		let token = totp[1];
+		let time = timeRemaining(totp[0].period);
+
+		if (time == totp[0].period) {
+			token = totp[0].generate();
+			token = token.split('').join(' ');
+			totp[1] = token;
+		}
+
+		temp.push([issuer, token, label, time]);
+	}
+	tokens.value = temp;
+}
+
+onMounted(() => {
+	setInterval(generateOtp, 1000);
+});
+</script>
+
+<style>
+.content {
+	padding: 15px 0px;
+}
+
+.card {
+	margin: 7px 14px;
+	border-radius: 10px;
+	background-color: #191919;
+	padding: 10px 15px;
+}
+
+.line {
+	display: flex;
+	justify-content: space-between;
+}
+
+.user {
+	font-size: 12px;
+	color: #999999;
+	text-align: center;
+}
+
+.label {
+	font-size: 14px;
+	color: #00aaff;
+	text-align: center;
+}
+
+.token {
+	margin-top: 4px;
+	font-size: 18px;
+	color: white;
+	text-align: center;
+}
+
+.none {
+	margin-top: 20px;
+}
+
+.none-label {
+	color: #b6b6b6;
+	font-size: 18px;
+	text-align: center;
+}
+</style>
